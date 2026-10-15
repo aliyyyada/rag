@@ -1,0 +1,65 @@
+# Запуск:  cp .env.example .env && docker compose up -d --build
+# Первый запуск скачивает модели (~3.5 ГБ) в папку ./models.
+# Для ПК без интернета: scripts/make_offline_bundle.sh (см. README, «Установка без интернета»).
+services:
+  ollama:
+    image: ollama/ollama:latest   # для воспроизводимости закрепите версию, например ollama/ollama:0.12.6
+    restart: unless-stopped
+    environment:
+      OLLAMA_NUM_PARALLEL: "1"        # один запрос за раз: на 4 ядрах параллельность только тормозит
+      OLLAMA_MAX_LOADED_MODELS: "2"   # LLM и модель эмбеддингов одновременно в памяти
+      OLLAMA_KEEP_ALIVE: "30m"
+      OLLAMA_FLASH_ATTENTION: "1"
+      OLLAMA_KV_CACHE_TYPE: "q8_0"    # вдвое меньше памяти на контекст
+    volumes:
+      - ./models:/root/.ollama   # модели лежат обычной папкой: для переноса её достаточно скопировать
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+    mem_limit: 5g
+
+  # Одноразовый контейнер: скачивает модели, если их ещё нет, и завершается.
+  # Если модели уже лежат в ./models, интернет не нужен и контейнер просто завершится.
+  ollama-pull:
+    image: ollama/ollama:latest
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_HOST: ollama:11434
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        for m in ${LLM_MODEL:-qwen3:4b} ${LLM_MODEL_LITE:-qwen2.5:1.5b} ${EMBED_MODEL:-bge-m3}; do
+          case "$$m" in *:*) full="$$m" ;; *) full="$$m:latest" ;; esac
+          if ollama list | awk 'NR>1 {print $$1}' | grep -qx "$$full"; then
+            echo "Модель $$m уже есть"
+          else
+            ollama pull "$$m" || { echo "Не удалось скачать $$m: нет интернета? Скопируйте папку models с другого ПК."; exit 1; }
+          fi
+        done
+    restart: "no"
+
+  app:
+    build: .
+    image: rag-docs:latest
+    restart: unless-stopped
+    depends_on:
+      ollama:
+        condition: service_healthy
+    ports:
+      - "${APP_PORT:-8000}:8000"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      OLLAMA_URL: http://ollama:11434
+      DATA_DIR: /data
+      WATCH_DIR: /watch
+    volumes:
+      - ./data:/data
+      - ${WATCH_HOST_DIR:-./inbox}:/watch:ro
+    mem_limit: 1500m

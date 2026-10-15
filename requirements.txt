@@ -1,0 +1,11 @@
+fastapi==0.115.6
+uvicorn[standard]==0.32.1
+python-multipart==0.0.20
+httpx==0.28.1
+numpy==2.2.1
+pymupdf==1.25.1
+SQLAlchemy==2.0.36
+# Драйверы для SQL-источника (раскомментировать нужный):
+# psycopg[binary]==3.2.3      # PostgreSQL
+# pymssql==2.3.2              # MS SQL Server
+# PyMySQL==1.1.1              # MySQL / MariaDB

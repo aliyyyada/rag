@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Поиск по документам</title>
+<style>
+  :root { --bg:#f5f6f8; --card:#fff; --text:#1d2330; --muted:#667085; --line:#e3e6eb;
+          --accent:#2457c5; --warn:#b54708; --warn-bg:#fff4e5; --ok:#067647; --err:#b42318; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+         background:var(--bg); color:var(--text); }
+  header { background:var(--card); border-bottom:1px solid var(--line); padding:12px 20px;
+           display:flex; gap:16px; align-items:center; flex-wrap:wrap; }
+  header h1 { font-size:18px; margin:0 12px 0 0; }
+  nav button { background:none; border:0; padding:8px 12px; font:inherit; cursor:pointer;
+               border-radius:6px; color:var(--muted); }
+  nav button.active { background:#e8eefb; color:var(--accent); font-weight:600; }
+  #health { margin-left:auto; font-size:13px; color:var(--muted); }
+  main { max-width:1000px; margin:20px auto; padding:0 16px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px;
+          margin-bottom:16px; }
+  textarea, input[type=text] { width:100%; font:inherit; padding:10px; border:1px solid var(--line);
+          border-radius:8px; resize:vertical; }
+  button.primary { background:var(--accent); color:#fff; border:0; border-radius:8px; padding:9px 16px;
+          font:inherit; cursor:pointer; }
+  button.primary:disabled { opacity:.5; cursor:default; }
+  button.small { font:inherit; font-size:13px; padding:3px 9px; border:1px solid var(--line);
+          background:#fff; border-radius:6px; cursor:pointer; }
+  .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top:10px; }
+  .chat { display:flex; flex-direction:column; gap:12px; min-height:200px; }
+  .msg { max-width:85%; padding:10px 14px; border-radius:12px; white-space:pre-wrap; }
+  .msg.user { align-self:flex-end; background:var(--accent); color:#fff; border-bottom-right-radius:4px; }
+  .msg.bot { align-self:flex-start; background:var(--card); border:1px solid var(--line); border-bottom-left-radius:4px; }
+  .msg.bot.pending { color:var(--muted); }
+  .msg .refs { margin-top:8px; font-size:13px; white-space:normal; }
+  .msg details { margin-top:4px; }
+  .msg summary { cursor:pointer; color:var(--accent); }
+  .msg .quote { color:var(--muted); margin:4px 0 0 14px; }
+  .msg .warn { white-space:normal; font-size:14px; margin:8px 0 0; }
+  .composer { display:flex; gap:10px; align-items:flex-end; position:sticky; bottom:0; background:var(--bg); padding:12px 0; }
+  .composer textarea { flex:1; }
+  .muted { color:var(--muted); font-size:13px; }
+  .src { border-top:1px solid var(--line); padding:8px 0; font-size:14px; }
+  .src b { color:var(--accent); }
+  .warn { background:var(--warn-bg); border:1px solid #f7c98b; border-radius:8px; padding:10px 12px;
+          margin:10px 0; color:var(--warn); }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  td, th { text-align:left; padding:7px 6px; border-bottom:1px solid var(--line); vertical-align:top; }
+  .st-ready { color:var(--ok); } .st-error { color:var(--err); } .st-processing, .st-queued, .st-waiting { color:var(--warn); }
+  .pair { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:8px; }
+  .pair > div { background:#fafbfc; border:1px solid var(--line); border-radius:8px; padding:10px; font-size:14px; }
+  .pair mark { background:#ffe0b2; }
+  @media (max-width:700px) { .pair { grid-template-columns:1fr; } }
+  .hidden { display:none; }
+  progress { width:240px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Поиск по документам</h1>
+  <nav>
+    <button data-tab="ask" class="active">Вопрос</button>
+    <button data-tab="docs">Документы</button>
+    <button data-tab="contra">Противоречия</button>
+    <button data-tab="check">Проверить проект</button>
+  </nav>
+  <span id="health">проверка…</span>
+</header>
+<main>
+  <section id="tab-ask">
+    <div id="chat" class="chat">
+      <div class="msg bot">Задайте вопрос по загруженным документам.</div>
+    </div>
+    <div class="composer">
+      <textarea id="question" rows="2" placeholder="Например: можно ли пользоваться iPhone на территории цеха?"></textarea>
+      <div>
+        <button class="primary" id="askBtn">Отправить</button>
+        <div class="muted" style="margin-top:6px"><label><input type="checkbox" id="detailed"> подробно</label></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="tab-docs" class="hidden">
+    <div class="card">
+      <input type="file" id="files" accept="application/pdf" multiple>
+      <div class="row">
+        <button class="primary" id="uploadBtn">Загрузить</button>
+        <button class="small" id="sqlBtn">Синхронизировать SQL</button>
+        <span class="muted" id="uploadMsg"></span>
+      </div>
+    </div>
+    <div class="card"><table id="docTable"></table></div>
+  </section>
+
+  <section id="tab-contra" class="hidden">
+    <div class="card">
+      <div class="row" style="margin-top:0">
+        <button class="primary" id="scanBtn">Проверить все документы</button>
+        <button class="small hidden" id="cancelBtn">Остановить</button>
+        <progress id="scanProg" class="hidden" value="0" max="1"></progress>
+        <span class="muted" id="scanMsg"></span>
+      </div>
+      <div class="row">
+        <label class="muted"><input type="checkbox" id="showDismissed"> показывать отклонённые</label>
+      </div>
+    </div>
+    <div id="contraList"></div>
+  </section>
+
+  <section id="tab-check" class="hidden">
+    <div class="card">
+      <p class="muted" style="margin-top:0">Вставьте текст проекта приказа или выберите PDF — система найдёт, с какими действующими документами он конфликтует. В базу проект не добавляется.</p>
+      <textarea id="draftText" rows="8" placeholder="Текст проекта документа"></textarea>
+      <div class="row">
+        <input type="file" id="draftFile" accept="application/pdf">
+        <button class="primary" id="checkBtn">Проверить</button>
+        <span class="muted" id="checkMsg"></span>
+      </div>
+    </div>
+    <div id="checkOut"></div>
+  </section>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const docLabel = (c) => c ? `${esc(c.title)}${c.doc_number ? " № " + esc(c.doc_number) : ""}${c.doc_date ? " от " + esc(c.doc_date) : ""}` : "(удалён)";
+function highlight(text, quote) {
+  const t = esc(text);
+  const q = esc((quote || "").trim());
+  if (q.length < 5 || !t.includes(q)) return t;
+  return t.replace(q, `<mark>${q}</mark>`);
+}
+
+document.querySelectorAll("nav button").forEach((b) => b.onclick = () => {
+  document.querySelectorAll("nav button").forEach((x) => x.classList.toggle("active", x === b));
+  document.querySelectorAll("main > section").forEach((s) => s.classList.toggle("hidden", s.id !== "tab-" + b.dataset.tab));
+  if (b.dataset.tab === "docs") loadDocs();
+  if (b.dataset.tab === "contra") { loadContra(); pollScan(); }
+});
+
+async function health() {
+  try {
+    const h = await (await fetch("/api/health")).json();
+    $("health").textContent = h.ok ? `модель: ${h.llm}` :
+      (h.missing_models?.length ? "не скачаны модели: " + h.missing_models.join(", ") : "Ollama " + h.ollama);
+    $("health").style.color = h.ok ? "" : "var(--err)";
+  } catch { $("health").textContent = "сервер недоступен"; }
+}
+health(); setInterval(health, 30000);
+
+// ---- чат ----
+function addMsg(cls, html) {
+  const el = document.createElement("div");
+  el.className = "msg " + cls; el.innerHTML = html;
+  $("chat").appendChild(el); el.scrollIntoView({block: "end", behavior: "smooth"});
+  return el;
+}
+function renderAnswer(r) {
+  let html = esc(r.answer);
+  for (const c of r.contradictions) {
+    html += `<div class="warn"><b>Противоречие:</b> ${docLabel(c.a)} ↔ ${docLabel(c.b)}. ${esc(c.explanation)}</div>`;
+  }
+  if (r.contradiction_note) html += `<div class="warn"><b>Возможное противоречие:</b> ${esc(r.contradiction_note)}</div>`;
+  if (r.sources.length) {
+    html += `<div class="refs">` + r.sources.map((s) => `<details><summary>${docLabel(s)}${s.page ? ", стр. " + s.page : ""}</summary>
+      <div class="quote">${esc(s.text)}</div>${s.doc_id ? `<a href="/api/documents/${s.doc_id}/file" target="_blank">открыть документ</a>` : ""}</details>`).join("") + `</div>`;
+  }
+  return html;
+}
+async function ask() {
+  const question = $("question").value.trim();
+  if (question.length < 2 || $("askBtn").disabled) return;
+  $("askBtn").disabled = true; $("question").value = "";
+  addMsg("user", esc(question));
+  const pending = addMsg("bot pending", "Ищу ответ в документах…");
+  try {
+    const r = await fetch("/api/ask", {method:"POST", headers:{"Content-Type":"application/json"},
+                                      body: JSON.stringify({question, detailed: $("detailed").checked})});
+    const res = await r.json();
+    if (!r.ok) throw new Error(typeof res.detail === "string" ? res.detail : r.statusText);
+    pending.classList.remove("pending"); pending.innerHTML = renderAnswer(res);
+  } catch (e) { pending.classList.remove("pending"); pending.textContent = "Ошибка: " + e.message; }
+  pending.scrollIntoView({block: "end", behavior: "smooth"});
+  $("askBtn").disabled = false; $("question").focus();
+}
+$("askBtn").onclick = ask;
+$("question").addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); ask(); } });
+
+// ---- документы ----
+const STATUS = {queued:"в очереди", waiting:"ждёт модель", processing:"обработка…", ready:"готов", error:"ошибка"};
+let docsTimer = null;
+async function loadDocs() {
+  const docs = await (await fetch("/api/documents")).json();
+  $("docTable").innerHTML = "<tr><th>Документ</th><th>Источник</th><th>Стр.</th><th>Фрагм.</th><th>Статус</th><th></th></tr>" +
+    docs.map((d) => `<tr><td>${d.source === "pdf" ? `<a href="/api/documents/${d.id}/file" target="_blank">${docLabel(d)}</a>` : docLabel(d)}</td>
+      <td>${esc(d.source)}</td><td>${d.pages || ""}</td><td>${d.chunks}</td>
+      <td class="st-${d.status}">${STATUS[d.status] || d.status}${d.error ? "<br><span class='muted'>" + esc(d.error) + "</span>" : ""}</td>
+      <td>${d.status === "error" && d.source === "pdf" ? `<button class="small" onclick="retryDoc(${d.id})">повторить</button> ` : ""}<button class="small" onclick="delDoc(${d.id})">удалить</button></td></tr>`).join("");
+  clearTimeout(docsTimer);
+  if (docs.some((d) => ["queued", "waiting", "processing"].includes(d.status))) docsTimer = setTimeout(loadDocs, 3000);
+}
+async function retryDoc(id) {
+  await fetch(`/api/documents/${id}/retry`, {method:"POST"}); loadDocs();
+}
+async function delDoc(id) {
+  if (!confirm("Удалить документ из базы?")) return;
+  await fetch(`/api/documents/${id}`, {method:"DELETE"}); loadDocs();
+}
+$("uploadBtn").onclick = async () => {
+  const files = $("files").files;
+  if (!files.length) return;
+  const fd = new FormData();
+  for (const f of files) fd.append("files", f);
+  $("uploadMsg").textContent = "Загрузка…";
+  const res = await (await fetch("/api/documents", {method:"POST", body: fd})).json();
+  const dup = res.filter((r) => r.duplicate).length;
+  $("uploadMsg").textContent = `Принято: ${res.length - dup}` + (dup ? `, уже были в базе: ${dup}` : "");
+  $("files").value = ""; loadDocs();
+};
+$("sqlBtn").onclick = async () => {
+  const r = await fetch("/api/sql/sync", {method:"POST"});
+  const j = await r.json();
+  $("uploadMsg").textContent = r.ok ? `SQL: новых ${j.added}, обновлено ${j.updated}, без изменений ${j.unchanged}` : j.detail;
+  loadDocs();
+};
+
+// ---- противоречия ----
+async function loadContra() {
+  const all = await (await fetch("/api/contradictions")).json();
+  const list = $("showDismissed").checked ? all : all.filter((c) => c.status !== "dismissed");
+  $("contraList").innerHTML = list.length ? list.map((c) => `
+    <div class="card">
+      <div><b>${esc(c.topic || "Противоречие")}</b>
+        <span class="muted"> · сходство ${c.similarity?.toFixed(2)} · ${c.status === "confirmed" ? "подтверждено" : c.status === "dismissed" ? "отклонено" : "новое"}</span></div>
+      <div>${esc(c.explanation)}</div>
+      <div class="pair">
+        <div><b>${docLabel(c.a)}</b>${c.a?.page ? `, стр. ${c.a.page}` : ""}<br>${highlight(c.a?.text, c.quote_a)}</div>
+        <div><b>${docLabel(c.b)}</b>${c.b?.page ? `, стр. ${c.b.page}` : ""}<br>${highlight(c.b?.text, c.quote_b)}</div>
+      </div>
+      <div class="row">
+        <button class="small" onclick="setStatus(${c.id}, 'confirmed')">Подтвердить</button>
+        <button class="small" onclick="setStatus(${c.id}, 'dismissed')">Это не противоречие</button>
+      </div>
+    </div>`).join("") : "<div class='card muted'>Противоречий пока не найдено.</div>";
+}
+async function setStatus(id, status) {
+  await fetch(`/api/contradictions/${id}`, {method:"PATCH", headers:{"Content-Type":"application/json"},
+                                            body: JSON.stringify({status})});
+  loadContra();
+}
+$("showDismissed").onchange = loadContra;
+let scanTimer = null, wasRunning = false;
+async function pollScan() {
+  const s = await (await fetch("/api/contradictions/status")).json();
+  $("scanBtn").disabled = s.running;
+  $("cancelBtn").classList.toggle("hidden", !s.running);
+  $("scanProg").classList.toggle("hidden", !s.running || !s.total);
+  $("scanProg").max = s.total || 1; $("scanProg").value = s.done;
+  const counts = s.total ? ` (проверено пар ${s.done} из ${s.total}, найдено ${s.found})` : "";
+  $("scanMsg").textContent = !s.message ? "" :
+    (s.running ? "" : "Последняя проверка: ") + s.message + counts + (s.skipped ? `, отложено пар: ${s.skipped}` : "");
+  if (wasRunning && !s.running) loadContra();
+  wasRunning = s.running;
+  clearTimeout(scanTimer);
+  if (s.running) scanTimer = setTimeout(pollScan, 3000);
+}
+$("scanBtn").onclick = async () => {
+  await fetch("/api/contradictions/scan", {method:"POST", headers:{"Content-Type":"application/json"}, body:"{}"});
+  pollScan();
+};
+$("cancelBtn").onclick = async () => { await fetch("/api/contradictions/cancel", {method:"POST"}); pollScan(); };
+
+// ---- проверка проекта ----
+$("checkBtn").onclick = async () => {
+  const fd = new FormData();
+  fd.append("text", $("draftText").value);
+  if ($("draftFile").files[0]) fd.append("file", $("draftFile").files[0]);
+  $("checkBtn").disabled = true; $("checkMsg").textContent = "Проверяю… это может занять несколько минут";
+  $("checkOut").innerHTML = "";
+  try {
+    const r = await fetch("/api/check", {method:"POST", body: fd});
+    const res = await r.json();
+    if (!r.ok) throw new Error(res.detail);
+    $("checkMsg").textContent = res.length ? `Найдено противоречий: ${res.length}` : "Противоречий с действующими документами не найдено";
+    $("checkOut").innerHTML = res.map((c) => `
+      <div class="card"><b>${esc(c.topic)}</b><div>${esc(c.explanation)}</div>
+        <div class="pair"><div><b>Проект</b><br>${highlight(c.draft_text, c.quote_a)}</div>
+        <div><b>${docLabel(c.other)}</b>${c.other.page ? `, стр. ${c.other.page}` : ""}<br>${highlight(c.other.text, c.quote_b)}</div></div></div>`).join("");
+  } catch (e) { $("checkMsg").textContent = "Ошибка: " + e.message; }
+  $("checkBtn").disabled = false;
+};
+</script>
+</body>
+</html>
